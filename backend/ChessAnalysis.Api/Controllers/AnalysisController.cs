@@ -6,18 +6,18 @@ namespace ChessAnalysis.Api.Controllers;
 [Route("api/[controller]")]
 public class AnalysisController : ControllerBase
 {
-    [HttpPost("upload")]
-    public async Task<IActionResult> UploadPgn(IFormFile pgnFile)
-    {
-        if (pgnFile == null || pgnFile.Length == 0)
-        {
-            return BadRequest("No pgn file uploaded");
-        }
+	[HttpPost("upload")]
+	public async Task<IActionResult> UploadPgn(IFormFile pgnFile)
+	{
+		if (pgnFile == null || pgnFile.Length == 0)
+		{
+			return BadRequest("No pgn file uploaded");
+		}
 
-        return Ok(new
-        {
-            fileName = pgnFile.FileName,
-            size = pgnFile.Length
-        });
-    }
+		return Ok(new
+		{
+			fileName = pgnFile.FileName,
+			size = pgnFile.Length
+		});
+	}
 }
