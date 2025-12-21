@@ -1,34 +1,39 @@
-import { useState } from "react";
-import { Chessboard } from "react-chessboard";
+import { useRef, useState } from "react";
+import { Chess } from "chess.js";
+import ChessBoard from "./ChessBoard";
 
 function App() {
-	const [file, setFile] = useState(null);
+	const chessRef = useRef(new Chess());
 
-	const handleFileChange = async (e) => {
-		const selectedFile = e.target.files?.[0];
-		setFile(selectedFile);
+	const [sanMoves, setSanMoves] = useState(["e4", "e5", "Nf3"]);
+	const [currentIndex, setCurrentIndex] = useState(0);
+	const [board, setBoard] = useState(chessRef.current.board());
 
-		if (!selectedFile) return;
+	const next = () => {
+		if (currentIndex >= sanMoves.length) return;
 
-		const formData = new FormData();
-		formData.append("pgnFile", selectedFile);
+		const move = sanMoves[currentIndex];
+		const ok = chessRef.current.move(move, { sloppy: true });
 
-		try {
-			const response = await fetch("/api/analysis/upload", {
-				method: "POST",
-				body: formData,
-			});
-
-			if (!response.ok) {
-				console.error("Upload failed", response.statusText);
-				return;
-			}
-
-			const metadata = await response.json();
-			console.log("Uploaded file metadata:", metadata);
-		} catch (err) {
-			console.error("Upload error", err);
+		if (!ok) {
+			console.error("Illegal move:", move);
+			return;
 		}
+
+		setCurrentIndex((i) => i + 1);
+		setBoard(chessRef.current.board());
+	};
+
+	const previous = () => {
+		if (currentIndex === 0) return;
+
+		chessRef.current = new Chess();
+		for (let i = 0; i < currentIndex - 1; i++) {
+			chessRef.current.move(sanMoves[i], { sloppy: true });
+		}
+
+		setCurrentIndex((i) => i - 1);
+		setBoard(chessRef.current.board());
 	};
 
 	return (
@@ -36,15 +41,22 @@ function App() {
 			<h1>Chess Analysis Engine</h1>
 
 			<div style={{ marginBottom: "1rem" }}>
-				<input
-					type="file"
-					accept=".pgn"
-					onChange={handleFileChange}
-				/>
-				{file && <p>Selected: {file.name}</p>}
+				<button onClick={previous} disabled={currentIndex === 0}>
+					Previous
+				</button>
+				<button
+					onClick={next}
+					disabled={currentIndex >= sanMoves.length}
+					style={{ marginLeft: "0.5rem" }}
+				>
+					Next
+				</button>
+				<span style={{ marginLeft: "1rem" }}>
+					Move {currentIndex} / {sanMoves.length}
+				</span>
 			</div>
 
-			<Chessboard position="start" />
+			<ChessBoard board={board} />
 		</div>
 	);
 }
