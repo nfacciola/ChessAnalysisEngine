@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { Chess } from "chess.js";
 import ChessBoard from "./ChessBoard";
 
+const BEST_EPSILON = 15; // cp tolerance for depth noise
+
 function toWhiteCp(cp, sideToMove) {
 	return sideToMove === "w" ? cp : -cp;
 }
@@ -15,18 +17,22 @@ function computeLoss(bestCp, playedCp, mover, sideToMoveBefore) {
 	const bestForMover = mover === "w" ? bestWhite : -bestWhite;
 	const playedForMover = mover === "w" ? playedWhite : -playedWhite;
 
-	// loss is how much worse the played move is
-	return Math.max(0, bestForMover - playedForMover);
+	return Math.abs(bestForMover - playedForMover);
 }
 
-function labelFromLoss(loss, moveIndex) {
-	if (moveIndex <= 6 && loss <= 30) return "book";
-	if (loss === 0) return "best";
-	if (loss <= 20) return "excellent";
-	if (loss <= 50) return "good";
-	if (loss <= 100) return "inaccuracy";
-	if (loss <= 250) return "mistake";
-	return "blunder";
+function sameMove(uci, san) {
+	if (!uci || !san) return false;
+
+	// crude but effective for now
+	if (san.length === 2) {
+		// pawn move like e4
+		return uci.endsWith(san);
+	}
+
+	// strip capture symbols
+	const cleanSan = san.replace("x", "");
+
+	return uci.endsWith(cleanSan.slice(-2));
 }
 
 async function fetchEvaluation(fen, depth = 10) {
@@ -124,7 +130,7 @@ function App() {
 		}
 
 		// 4) Compute loss + label
-		let loss = 0;
+		let loss = null;
 		let label = "unknown";
 
 		if (bestEval) {
@@ -134,7 +140,33 @@ function App() {
 				mover,
 				sideToMoveBefore
 			);
-			label = labelFromLoss(loss, moveIndex);
+		}
+
+		const isEngineMove = sameMove(bestMove, playedMove);
+
+		if (moveIndex <= 6 && loss <= 30) {
+			label = "book";
+		} else if (isEngineMove && loss <= BEST_EPSILON) {
+			label = "best";
+		} else if (loss <= 20) {
+			label = "excellent";
+		} else if (loss <= 50) {
+			label = "good";
+		} else if (loss <= 100) {
+			label = "inaccuracy";
+		} else if (loss <= 250) {
+			label = "mistake";
+		} else {
+			label = "blunder";
+		}
+
+		if (bestEval) {
+			loss = computeLoss(
+				bestEval.evaluation.value,
+				playedEval.evaluation.value,
+				mover,
+				sideToMoveBefore
+			);
 		}
 
 		// 5) Log sanity output
