@@ -9,6 +9,7 @@ function App() {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [board, setBoard] = useState(chessRef.current.board());
 	const [fileName, setFileName] = useState(null);
+	const [evaluations, setEvaluations] = useState({});
 
 	const handleFileChange = async (e) => {
 		const file = e.target.files?.[0];
@@ -37,12 +38,13 @@ function App() {
 			setSanMoves(result.sanMoves ?? []);
 			setCurrentIndex(0);
 			setBoard(chessRef.current.board());
+			setEvaluations({});
 		} catch (err) {
 			console.error("Upload error:", err);
 		}
 	};
 
-	const next = () => {
+	const next = async () => {
 		if (currentIndex >= sanMoves.length) return;
 
 		const move = sanMoves[currentIndex];
@@ -53,9 +55,44 @@ function App() {
 			return;
 		}
 
-		setCurrentIndex((i) => i + 1);
+		const newIndex = currentIndex + 1;
+
+		setCurrentIndex(newIndex);
 		setBoard(chessRef.current.board());
+
+		//Evaluate ONLY if we haven't already
+		if (!evaluations[newIndex]) {
+			try {
+				const response = await fetch("/api/analysis/evaluate", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						fen: chessRef.current.fen(),
+						depth: 10,
+					}),
+				});
+
+				if (!response.ok) {
+					console.error("Evaluation failed");
+					return;
+				}
+
+				const evalResult = await response.json();
+
+				setEvaluations((prev) => ({
+					...prev,
+					[newIndex]: evalResult,
+				}));
+
+				console.log(`Eval for move ${newIndex}:`, evalResult);
+			} catch (err) {
+				console.error("Evaluation error:", err);
+			}
+		}
 	};
+
 
 	const previous = () => {
 		if (currentIndex === 0) return;
