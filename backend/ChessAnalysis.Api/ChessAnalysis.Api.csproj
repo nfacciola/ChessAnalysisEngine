@@ -1,15 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
+	<ItemGroup>
+	<PackageReference Include="ChessDotNet" Version="1.0.0" />
+	<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+	</ItemGroup>
 
-  <ItemGroup>
-  <PackageReference Include="ChessDotNet" Version="1.0.0" />
-  <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
-</ItemGroup>
-
-
+	<ItemGroup>
+		<None Include="Stockfish\stockfish.exe">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
 </Project>
