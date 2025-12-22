@@ -2,6 +2,43 @@ import { useRef, useState } from "react";
 import { Chess } from "chess.js";
 import ChessBoard from "./ChessBoard";
 
+function toWhiteCp(cp, sideToMove) {
+	return sideToMove === "w" ? cp : -cp;
+}
+
+function computeLoss(bestCp, playedCp, mover, sideToMoveBefore) {
+	// normalize to White POV
+	const bestWhite = toWhiteCp(bestCp, sideToMoveBefore);
+	const playedWhite = toWhiteCp(playedCp, sideToMoveBefore);
+
+	// convert to mover POV
+	const bestForMover = mover === "w" ? bestWhite : -bestWhite;
+	const playedForMover = mover === "w" ? playedWhite : -playedWhite;
+
+	// loss is how much worse the played move is
+	return Math.max(0, bestForMover - playedForMover);
+}
+
+function labelFromLoss(loss, moveIndex) {
+	if (moveIndex <= 6 && loss <= 30) return "book";
+	if (loss === 0) return "best";
+	if (loss <= 20) return "excellent";
+	if (loss <= 50) return "good";
+	if (loss <= 100) return "inaccuracy";
+	if (loss <= 250) return "mistake";
+	return "blunder";
+}
+
+async function fetchEvaluation(fen, depth = 10) {
+	const response = await fetch("/api/analysis/evaluate", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ fen, depth }),
+	});
+	if (!response.ok) throw new Error("Evaluation failed");
+	return await response.json();
+}
+
 function App() {
 	const chessRef = useRef(new Chess());
 
@@ -39,6 +76,13 @@ function App() {
 			setCurrentIndex(0);
 			setBoard(chessRef.current.board());
 			setEvaluations({});
+			try {
+				const startEval = await fetchEvaluation(chessRef.current.fen(), 10);
+				setEvaluations({ 0: startEval });
+				console.log("Eval for start:", startEval);
+			} catch (e) {
+				console.error("Start evaluation error:", e);
+			}
 		} catch (err) {
 			console.error("Upload error:", err);
 		}
@@ -47,50 +91,76 @@ function App() {
 	const next = async () => {
 		if (currentIndex >= sanMoves.length) return;
 
-		const move = sanMoves[currentIndex];
-		const ok = chessRef.current.move(move, { sloppy: true });
+		const moveIndex = currentIndex + 1;
+		const playedMove = sanMoves[currentIndex];
 
-		if (!ok) {
-			console.error("Illegal move:", move);
-			return;
+		const fenBefore = chessRef.current.fen();
+		const sideToMoveBefore = chessRef.current.turn(); // 'w' or 'b'
+		const mover = sideToMoveBefore;
+
+		// 1) Evaluate BEFORE move (baseline)
+		let preEval = evaluations[moveIndex - 1];
+		if (!preEval) {
+			preEval = await fetchEvaluation(fenBefore, 12);
+			setEvaluations(prev => ({ ...prev, [moveIndex - 1]: preEval }));
 		}
 
-		const newIndex = currentIndex + 1;
+		const bestMove = preEval.bestMove;
+		if (!bestMove) {
+			console.warn("No best move from engine");
+		}
 
-		setCurrentIndex(newIndex);
+		// 2) Evaluate AFTER PLAYED move
+		const playedChess = new Chess(fenBefore);
+		playedChess.move(playedMove, { sloppy: true });
+		const playedEval = await fetchEvaluation(playedChess.fen(), 12);
+
+		// 3) Evaluate AFTER BEST move
+		let bestEval = null;
+		if (bestMove) {
+			const bestChess = new Chess(fenBefore);
+			bestChess.move(bestMove, { sloppy: true });
+			bestEval = await fetchEvaluation(bestChess.fen(), 12);
+		}
+
+		// 4) Compute loss + label
+		let loss = 0;
+		let label = "unknown";
+
+		if (bestEval) {
+			loss = computeLoss(
+				bestEval.evaluation.value,
+				playedEval.evaluation.value,
+				mover,
+				sideToMoveBefore
+			);
+			label = labelFromLoss(loss, moveIndex);
+		}
+
+		// 5) Log sanity output
+		console.log(
+			`Move ${moveIndex}\n` +
+			`Played: ${playedMove}\n` +
+			`Best:   ${bestMove ?? "n/a"}\n` +
+			`Eval(best):   ${bestEval?.evaluation.value ?? "n/a"} cp\n` +
+			`Eval(played): ${playedEval.evaluation.value} cp\n` +
+			`Loss: ${loss} cp\n` +
+			`Label: ${label}`
+		);
+
+		// 6) Apply move to real board
+		chessRef.current.move(playedMove, { sloppy: true });
+		setCurrentIndex(moveIndex);
 		setBoard(chessRef.current.board());
 
-		//Evaluate ONLY if we haven't already
-		if (!evaluations[newIndex]) {
-			try {
-				const response = await fetch("/api/analysis/evaluate", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						fen: chessRef.current.fen(),
-						depth: 10,
-					}),
-				});
-
-				if (!response.ok) {
-					console.error("Evaluation failed");
-					return;
-				}
-
-				const evalResult = await response.json();
-
-				setEvaluations((prev) => ({
-					...prev,
-					[newIndex]: evalResult,
-				}));
-
-				console.log(`Eval for move ${newIndex}:`, evalResult);
-			} catch (err) {
-				console.error("Evaluation error:", err);
-			}
-		}
+		// 7) Cache results
+		setEvaluations(prev => ({
+			...prev,
+			[moveIndex]: playedEval,
+			[`best_${moveIndex}`]: bestEval,
+			[`label_${moveIndex}`]: label,
+			[`loss_${moveIndex}`]: loss
+		}));
 	};
 
 

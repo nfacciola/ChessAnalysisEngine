@@ -8,7 +8,7 @@ namespace ChessAnalysis.Api.Controllers;
 public class AnalysisController : ControllerBase
 {
 
-	public record EvaluateRequest(string Fen, int Depth = 10);
+	public record EvaluateRequest(string Fen, int Depth = 12);
 
 	[HttpPost("upload")]
 	public async Task<IActionResult> UploadPgn(IFormFile pgnFile)
