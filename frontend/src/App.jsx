@@ -144,7 +144,7 @@ function App() {
 
 		const isEngineMove = sameMove(bestMove, playedMove);
 
-		if (moveIndex <= 6 && loss <= 30) {
+		if (moveIndex <= 4 && loss <= 30) {
 			label = "book";
 		} else if (isEngineMove && loss <= BEST_EPSILON) {
 			label = "best";
