@@ -58,19 +58,28 @@ public class GeminiCoachService
 
     private string BuildPrompt(CoachContext ctx)
     {
-        // This is the "System Prompt" + "User Prompt" combined
+        var boardJson = JsonSerializer.Serialize(ctx.BoardContext);
+
         return $@"
-You are a Chess Coach. The student just played '{ctx.MoveSan}'.
-Evaluation Label: {ctx.Label} (Score: {ctx.ScoreAfter} cp, was {ctx.ScoreBefore}).
+### ROLE
+You are a supportive Chess Coach. Your goal is to explain the move to a student in natural, conversational English.
 
-STRICT Factual Board Context (Do not hallucinate):
-Fen: {ctx.Fen}
-Best Move: {ctx.BestMoveSan}
-Analysis: {JsonSerializer.Serialize(ctx.BoardContext)}
+### INPUT DATA
+- **Student Move:** {ctx.MoveSan}
+- **Evaluation:** {ctx.Label} (Score change: {ctx.ScoreBefore} -> {ctx.ScoreAfter})
+- **Best Alternative:** {ctx.BestMoveSan}
 
-Explain WHY the move '{ctx.MoveSan}' was {ctx.Label}. 
-Use the 'geometry' and 'material' facts from the context above. 
-Keep it concise (2-3 sentences) and encouraging.";
+### BOARD CONTEXT (INTERNAL FACTS)
+{boardJson}
+
+### CRITICAL INSTRUCTIONS
+1. **Interpretation over Quotation:** NEVER mention variable names (e.g., `whiteControlsCenter`, `CanCastleKingside`, `materialBalance`). Instead, describe the reality (e.g., 'You have excellent control of the center', 'Your king is stuck in the middle', 'You are up a pawn').
+2. **Safety First:** - If `KingSafety.CanCastleKingside` is false, or `KingSafety.CanCastleQueenside` is false do not suggest castling unless it's a long-term plan.
+   - If `KingSafety.IsInCheck` is true, you must mention the check.
+3. **Tone:** Be concise (2-3 sentences). Do not use markdown code blocks.
+
+### TASK
+Explain WHY the move '{ctx.MoveSan}' was {ctx.Label} based on the context above. Speak to the student, not the developer.";
     }
 }
 

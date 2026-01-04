@@ -9,14 +9,51 @@ public class BoardAnalysisService
     public BoardContext Analyze(string fen)
     {
         var game = new ChessGame(fen);
-        var playerToMove = game.WhoseTurn;
+        var player = game.WhoseTurn;
 
         return new BoardContext
         {
             Fen = fen,
-            Turn = playerToMove.ToString(),
+            Turn = player.ToString(),
             Material = GetMaterialData(game),
-            Geometry = GetGeometryData(game)
+            Geometry = GetGeometryData(game),
+            KingSafety = GetKingSafetyData(game, player)
+        };
+    }
+
+    private KingSafetyData GetKingSafetyData(ChessGame game, Player player)
+    {
+        // 1. Check if King is attacked
+        bool isCheck = game.IsInCheck(player);
+
+        // 2. Check if specific Castling moves are strictly legal right now
+        // ChessDotNet usually represents castling moves as King moving 2 squares
+        // White: e1->g1 (Kingside), e1->c1 (Queenside)
+        // Black: e8->g8 (Kingside), e8->c8 (Queenside)
+
+        var validMoves = game.GetValidMoves(player);
+        bool canCastleKing = false;
+        bool canCastleQueen = false;
+
+        foreach (var move in validMoves)
+        {
+            // Simple heuristic: Detect castling by distance. 
+            // The library might explicitly mark them, but move logic is safest.
+            var diff = Math.Abs((int)move.NewPosition.File - (int)move.OriginalPosition.File);
+            var isKing = game.GetPieceAt(move.OriginalPosition) is King;
+
+            if (isKing && diff == 2)
+            {
+                if (move.NewPosition.File == ChessDotNet.File.G) canCastleKing = true;
+                if (move.NewPosition.File == ChessDotNet.File.C) canCastleQueen = true;
+            }
+        }
+
+        return new KingSafetyData
+        {
+            IsInCheck = isCheck,
+            CanCastleKingside = canCastleKing,
+            CanCastleQueenside = canCastleQueen
         };
     }
 

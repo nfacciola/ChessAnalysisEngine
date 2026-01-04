@@ -8,7 +8,7 @@ public class BoardContext
     // The "Modules" of the context
     public MaterialData Material { get; set; } = new();
     public GeometryData Geometry { get; set; } = new();
-    // TODO add StructureData, KingSafetyData later
+    public KingSafetyData KingSafety { get; set; } = new();
 }
 
 public class MaterialData
@@ -22,4 +22,11 @@ public class GeometryData
     public bool WhiteControlsCenter { get; set; }
     public bool BlackControlsCenter { get; set; }
     public List<string> OpenFiles { get; set; } = new();
+}
+
+public class KingSafetyData
+{
+    public bool CanCastleKingside { get; set; }
+    public bool CanCastleQueenside { get; set; }
+    public bool IsInCheck { get; set; }
 }
