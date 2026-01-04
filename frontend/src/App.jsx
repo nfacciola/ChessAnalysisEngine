@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { Chess } from "chess.js";
 import ChessBoard from "./ChessBoard";
 
-const BEST_EPSILON = 15; // cp tolerance for depth noise
 const sessionId = crypto.randomUUID();
 
 function toWhiteCp(cp, sideToMove) {
@@ -34,6 +33,22 @@ async function fetchEvaluation(fen, depth = 10) {
 	return await response.json();
 }
 
+async function fetchExplanation(context) {
+	try {
+		const response = await fetch("/api/coach/explain", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(context),
+		});
+		if (!response.ok) return "Coach error.";
+		const data = await response.json();
+		return data.explanation;
+	} catch (e) {
+		console.error("Coach failed:", e);
+		return null;
+	}
+}
+
 function App() {
 	const chessRef = useRef(new Chess());
 
@@ -42,6 +57,7 @@ function App() {
 	const [board, setBoard] = useState(chessRef.current.board());
 	const [fileName, setFileName] = useState(null);
 	const [evaluations, setEvaluations] = useState({});
+	const [explanation, setExplanation] = useState("");
 
 	const handleFileChange = (e) => {
 		const file = e.target.files?.[0];
@@ -195,6 +211,7 @@ function App() {
 		chessRef.current.move(playedMove, { sloppy: true });
 		setCurrentIndex(moveIndex);
 		setBoard(chessRef.current.board());
+		setExplanation("");
 
 		// 8) Cache results
 		setEvaluations(prev => ({
@@ -204,6 +221,31 @@ function App() {
 			[`label_${moveIndex}`]: label,
 			[`loss_${moveIndex}`]: loss
 		}));
+
+		// ------------------------------------------------
+		// 9) Ask the AI Coach (Async)
+		// ------------------------------------------------
+		if (label !== "book" && label !== "best") {
+			setExplanation("Thinking...");
+
+			const context = {
+				fen: fenBefore,
+				moveSan: playedMove,
+				bestMoveSan: bestMove, // sending UCI is fine, Gemini figures it out
+				label: label,
+				scoreBefore: preEval?.evaluation?.value ?? 0,
+				scoreAfter: playedEval?.evaluation?.value ?? 0
+			};
+
+			fetchExplanation(context).then(text => {
+				setExplanation(text);
+			});
+		} else if (label === "book") {
+			setExplanation("This is a known book move.");
+		} else if (label === "best") {
+			setExplanation("Best move! You found the optimal continuation.");
+		}
+
 	};
 
 	const previous = () => {
@@ -244,6 +286,15 @@ function App() {
 			</div>
 
 			<ChessBoard board={board} />
+			<div style={{
+				marginTop: "1rem",
+				padding: "1rem",
+				backgroundColor: "#333",
+				borderRadius: "8px",
+				minHeight: "60px"
+			}}>
+				<strong>Coach:</strong> {explanation}
+			</div>
 		</div>
 	);
 }
