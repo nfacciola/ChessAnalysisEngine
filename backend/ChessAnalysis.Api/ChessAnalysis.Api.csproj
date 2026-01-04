@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-	</PropertyGroup>
+	  <UserSecretsId>bdc69b3e-300a-422b-80ee-19f6751efe9e</UserSecretsId>
+  </PropertyGroup>
 
 	<ItemGroup>
 	<PackageReference Include="ChessDotNet" Version="1.0.0" />

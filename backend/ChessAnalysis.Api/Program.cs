@@ -1,3 +1,5 @@
+using ChessAnalysis.Api.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Services
@@ -16,6 +18,7 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddSingleton<EngineManager>();
 builder.Services.AddHostedService<SessionCleanupService>();
+builder.Services.AddHttpClient<GeminiCoachService>();
 
 var app = builder.Build();
 
