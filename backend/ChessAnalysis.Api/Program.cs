@@ -14,6 +14,8 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+builder.Services.AddSingleton<EngineManager>();
+builder.Services.AddHostedService<SessionCleanupService>();
 
 var app = builder.Build();
 

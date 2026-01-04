@@ -9,6 +9,12 @@ public class AnalysisController : ControllerBase
 {
 
 	public record EvaluateRequest(string Fen, int Depth = 12);
+	private readonly EngineManager _engineManager;
+
+	public AnalysisController(EngineManager engineManager)
+	{
+		_engineManager = engineManager;
+	}
 
 	[HttpPost("upload")]
 	public async Task<IActionResult> UploadPgn(IFormFile pgnFile)
@@ -36,100 +42,28 @@ public class AnalysisController : ControllerBase
 	}
 
 	[HttpPost("evaluate")]
-	public async Task<IActionResult> Evaluate([FromBody] EvaluateRequest request)
+	public async Task<IActionResult> Evaluate([FromBody] EvaluateRequest request, [FromHeader(Name = "X-Session-ID")] string sessionId)
 	{
-		if (string.IsNullOrWhiteSpace(request.Fen))
-		{
-			return BadRequest("FEN is required");
-		}
+		if (string.IsNullOrWhiteSpace(request.Fen)) return BadRequest("FEN is required");
+		if (string.IsNullOrEmpty(sessionId)) return BadRequest("Session ID required");
 
-		var stockfishPath = Path.Combine(
-			AppContext.BaseDirectory,
-			"Stockfish",
-			"stockfish.exe"
-		);
+		// 1. Get the persistent process
+		var session = _engineManager.GetSession(sessionId);
 
-		if (!System.IO.File.Exists(stockfishPath))
-		{
-			return StatusCode(500, $"Stockfish executable not found at path {stockfishPath}");
-		}
+		// 2. Run the heavy calculation (IO bound)
+		var rawOutput = await session.EvaluateAsync(request.Fen, request.Depth);
 
-		using var process = new System.Diagnostics.Process
-		{
-			StartInfo = new System.Diagnostics.ProcessStartInfo
-			{
-				FileName = stockfishPath,
-				RedirectStandardInput = true,
-				RedirectStandardOutput = true,
-				UseShellExecute = false,
-				CreateNoWindow = true
-			}
-		};
+		// 3. Parse the result (CPU bound, fast)
+		var result = Services.StockfishResultParser.Parse(rawOutput);
 
-		process.Start();
-
-		var input = process.StandardInput;
-		var output = process.StandardOutput;
-
-		// Handshake
-		await input.WriteLineAsync("uci");
-		await input.WriteLineAsync("isready");
-
-		string? line;
-		while ((line = await output.ReadLineAsync()) != null)
-		{
-			if (line == "readyok")
-				break;
-		}
-
-		// Send position + go
-		await input.WriteLineAsync($"position fen {request.Fen}");
-		await input.WriteLineAsync($"go depth {request.Depth}");
-
-		int? cp = null;
-		int? mate = null;
-		string? bestMove = null;
-		List<string> pv = new();
-
-		while ((line = await output.ReadLineAsync()) != null)
-		{
-			if (line.StartsWith("info"))
-			{
-				var cpMatch = Regex.Match(line, @"score cp (-?\d+)");
-				if (cpMatch.Success)
-					cp = int.Parse(cpMatch.Groups[1].Value);
-
-				var mateMatch = Regex.Match(line, @"score mate (-?\d+)");
-				if (mateMatch.Success)
-					mate = int.Parse(mateMatch.Groups[1].Value);
-
-				var pvIndex = line.IndexOf(" pv ");
-				if (pvIndex != -1)
-				{
-					var pvString = line[(pvIndex + 4)..]; // everything after " pv "
-					pv = pvString
-						.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-						.Where(t => t.Length >= 4) // e2e4, g1f3, etc
-						.ToList();
-				}
-			}
-
-			if (line.StartsWith("bestmove"))
-			{
-				bestMove = line.Split(' ')[1];
-				break;
-			}
-		}
-
-		process.Kill();
-
+		// 4. Return DTO
 		return Ok(new
 		{
-			evaluation = mate.HasValue
-				? new { type = "mate", value = mate.Value }
-				: new { type = "cp", value = cp ?? 0 },
-			bestMove,
-			pv,
+			evaluation = result.Mate.HasValue
+				? new { type = "mate", value = result.Mate.Value }
+				: new { type = "cp", value = result.Cp ?? 0 },
+			bestMove = result.BestMove,
+			pv = result.Pv,
 			depth = request.Depth
 		});
 	}
