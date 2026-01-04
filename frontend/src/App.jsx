@@ -43,44 +43,48 @@ function App() {
 	const [fileName, setFileName] = useState(null);
 	const [evaluations, setEvaluations] = useState({});
 
-	const handleFileChange = async (e) => {
+	const handleFileChange = (e) => {
 		const file = e.target.files?.[0];
 		if (!file) return;
 
 		setFileName(file.name);
 
-		const formData = new FormData();
-		formData.append("pgnFile", file); // MUST match backend parameter name
+		const reader = new FileReader();
+		reader.onload = async (event) => {
+			const pgnText = event.target.result;
 
-		try {
-			const response = await fetch("/api/analysis/upload", {
-				method: "POST",
-				body: formData,
-			});
-
-			if (!response.ok) {
-				console.error("Upload failed:", response.statusText);
-				return;
-			}
-
-			const result = await response.json();
-
-			// Reset chess state
-			chessRef.current = new Chess();
-			setSanMoves(result.sanMoves ?? []);
-			setCurrentIndex(0);
-			setBoard(chessRef.current.board());
-			setEvaluations({});
 			try {
-				const startEval = await fetchEvaluation(chessRef.current.fen(), 10);
-				setEvaluations({ 0: startEval });
-				console.log("Eval for start:", startEval);
-			} catch (e) {
-				console.error("Start evaluation error:", e);
+				// 1. Use robust chess.js parser
+				const tempChess = new Chess();
+				tempChess.loadPgn(pgnText);
+
+				// 2. Extract clean SAN moves (strips comments/variations automatically)
+				const history = tempChess.history();
+
+				// 3. Reset State
+				chessRef.current = new Chess();
+				setSanMoves(history);
+				setCurrentIndex(0);
+				setBoard(chessRef.current.board());
+				setEvaluations({});
+
+				// 4. Kick off the start position evaluation
+				try {
+					const startEval = await fetchEvaluation(chessRef.current.fen(), 10);
+					setEvaluations({ 0: startEval });
+					console.log("Eval for start:", startEval);
+				} catch (e) {
+					console.error("Start evaluation error:", e);
+				}
+
+			} catch (error) {
+				console.error("PGN Parse Error:", error);
+				alert("Invalid PGN file");
 			}
-		} catch (err) {
-			console.error("Upload error:", err);
-		}
+		};
+
+		// Read the file as text directly in the browser
+		reader.readAsText(file);
 	};
 
 	const next = async () => {
