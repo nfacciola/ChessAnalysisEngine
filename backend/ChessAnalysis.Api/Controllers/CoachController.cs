@@ -1,6 +1,5 @@
-using ChessAnalysis.Api.Dto;
-using ChessAnalysis.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using ChessAnalysis.Api.Services;
 
 namespace ChessAnalysis.Api.Controllers;
 
@@ -8,18 +7,17 @@ namespace ChessAnalysis.Api.Controllers;
 [Route("api/[controller]")]
 public class CoachController : ControllerBase
 {
-    private readonly GeminiCoachService _coach;
+    private readonly GeminiCoachService _coachService;
 
-    public CoachController(GeminiCoachService coach)
+    public CoachController(GeminiCoachService coachService)
     {
-        _coach = coach;
+        _coachService = coachService;
     }
 
     [HttpPost("explain")]
-    public async Task<IActionResult> Explain([FromBody] ExplainRequest request)
+    public async Task<IActionResult> Explain([FromBody] CoachContext context)
     {
-        // Simple passthrough to the service
-        var text = await _coach.GetExplanationAsync(request);
-        return Ok(new ExplainResponse(text));
+        var explanation = await _coachService.ExplainMoveAsync(context);
+        return Ok(new { explanation });
     }
 }

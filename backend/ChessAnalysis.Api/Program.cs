@@ -6,6 +6,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Domain Services
+builder.Services.AddScoped<BoardAnalysisService>();
+
+// Engine Management
+builder.Services.AddSingleton<EngineManager>();
+builder.Services.AddHostedService<SessionCleanupService>();
+
+// HTTP Clients (Registers GeminiCoachService automatically)
+builder.Services.AddHttpClient<GeminiCoachService>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendDev", policy =>
@@ -16,9 +27,6 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
-builder.Services.AddSingleton<EngineManager>();
-builder.Services.AddHostedService<SessionCleanupService>();
-builder.Services.AddHttpClient<GeminiCoachService>();
 
 var app = builder.Build();
 
@@ -31,7 +39,5 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.MapControllers();
-
 app.Run();

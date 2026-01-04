@@ -33,6 +33,40 @@ async function fetchEvaluation(fen, depth = 10) {
 	return await response.json();
 }
 
+async function fetchContext(fen) {
+	const response = await fetch("/api/analysis/context", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ fen }),
+	});
+	if (!response.ok) throw new Error("Context analysis failed");
+	return await response.json();
+}
+
+function resolveUciMove(fen, moveSan) {
+	try {
+		const tempChess = new Chess(fen);
+		const moveDetails = tempChess.move(moveSan, { sloppy: true });
+		if (!moveDetails) return null;
+		return moveDetails.from + moveDetails.to + (moveDetails.promotion ?? "");
+	} catch (e) {
+		return null;
+	}
+}
+
+// Helper: Determine the label (Best, Mistake, Blunder, etc.)
+function classifyMove(loss, moveIndex, isEngineMove) {
+	if (isEngineMove) {
+		return moveIndex <= 4 ? "book" : "best";
+	}
+	if (moveIndex <= 4 && loss <= 30) return "book";
+	if (loss <= 20) return "excellent";
+	if (loss <= 50) return "good";
+	if (loss <= 100) return "inaccuracy";
+	if (loss <= 250) return "mistake";
+	return "blunder";
+}
+
 async function fetchExplanation(context) {
 	try {
 		const response = await fetch("/api/coach/explain", {
@@ -103,149 +137,121 @@ function App() {
 		reader.readAsText(file);
 	};
 
+	// ---------------------------------------------------------
+	// 1. Data Fetching Orchestrator (Parallelized)
+	// ---------------------------------------------------------
+	const fetchAnalysisData = async (fenBefore, playedMove, bestMove) => {
+		// Prepare "After" state
+		const playedChess = new Chess(fenBefore);
+		playedChess.move(playedMove, { sloppy: true });
+		const fenAfter = playedChess.fen();
+
+		// Prepare "Best" state (if it exists)
+		let bestMoveFen = null;
+		if (bestMove) {
+			const bestChess = new Chess(fenBefore);
+			bestChess.move(bestMove, { sloppy: true });
+			bestMoveFen = bestChess.fen();
+		}
+
+		// Fire all requests in parallel
+		const promises = [
+			fetchEvaluation(fenAfter, 12),      // 0: Played Eval (Truth)
+			fetchContext(fenAfter)              // 1: Context (Facts)
+		];
+
+		if (bestMoveFen) {
+			promises.push(fetchEvaluation(bestMoveFen, 12)); // 2: Best Eval
+		}
+
+		const results = await Promise.all(promises);
+
+		return {
+			playedEval: results[0],
+			boardContext: results[1],
+			bestEval: bestMoveFen ? results[2] : null
+		};
+	};
+
+	// ---------------------------------------------------------
+	// 2. The Main "Next" Function (Clean & Readable)
+	// ---------------------------------------------------------
 	const next = async () => {
 		if (currentIndex >= sanMoves.length) return;
 
 		const moveIndex = currentIndex + 1;
 		const playedMove = sanMoves[currentIndex];
-
 		const fenBefore = chessRef.current.fen();
-		const sideToMoveBefore = chessRef.current.turn(); // 'w' or 'b'
-		const mover = sideToMoveBefore;
+		const sideToMove = chessRef.current.turn();
 
-		// 1) Evaluate BEFORE move (baseline)
+		// Step 1: Ensure we have the "Baseline" (Pre-move eval)
 		let preEval = evaluations[moveIndex - 1];
 		if (!preEval) {
 			preEval = await fetchEvaluation(fenBefore, 12);
 			setEvaluations(prev => ({ ...prev, [moveIndex - 1]: preEval }));
 		}
+		const bestMoveSan = preEval.bestMove;
 
-		const bestMove = preEval.bestMove;
-		if (!bestMove) {
-			console.warn("No best move from engine");
-		}
+		// Step 2: Fetch all analysis data in parallel
+		const { playedEval, bestEval, boardContext } = await fetchAnalysisData(
+			fenBefore,
+			playedMove,
+			bestMoveSan
+		);
 
-		// 2) Evaluate AFTER PLAYED move
-		const playedChess = new Chess(fenBefore);
-		playedChess.move(playedMove, { sloppy: true });
-		const playedEval = await fetchEvaluation(playedChess.fen(), 12);
+		// Step 3: Compute Logic (UCI resolution & Loss)
+		const playedUci = resolveUciMove(fenBefore, playedMove);
+		// Note: 'bestMoveSan' from backend is usually UCI (e.g. "e2e4"), check your API. 
+		// If API returns SAN, use resolveUciMove on bestMoveSan too.
+		const isEngineMove = bestMoveSan && playedUci && (bestMoveSan === playedUci);
 
-		// 3) Evaluate AFTER BEST move
-		let bestEval = null;
-		if (bestMove) {
-			const bestChess = new Chess(fenBefore);
-			bestChess.move(bestMove, { sloppy: true });
-			bestEval = await fetchEvaluation(bestChess.fen(), 12);
-		}
-
-		// 4) Compute comparison logic
-
-		// NEW: Resolve Played Move to UCI (e.g. "Nf3" -> "g1f3")
-		// This handles ambiguity and castling correctly.
-		let playedMoveUci = null;
-		try {
-			// We clone to avoid mutating the main game state
-			const tempChess = new Chess(fenBefore);
-			const moveDetails = tempChess.move(playedMove, { sloppy: true });
-			if (moveDetails) {
-				// Concatenate from + to + promotion (if it exists)
-				playedMoveUci = moveDetails.from + moveDetails.to + (moveDetails.promotion ?? "");
-			}
-		} catch (e) {
-			console.warn("Could not parse played move for UCI comparison", e);
-		}
-
-		// Strict equality check
-		const isEngineMove = bestMove && playedMoveUci && (bestMove === playedMoveUci);
-
-		let loss = null;
-		let label = "unknown";
-
-		if (bestEval) {
+		let loss = 0;
+		if (bestEval && !isEngineMove) {
 			loss = computeLoss(
 				bestEval.evaluation.value,
 				playedEval.evaluation.value,
-				mover,
-				sideToMoveBefore
+				sideToMove, // Mover
+				sideToMove  // Side before move
 			);
 		}
 
-		// 5) Label Assignment
+		// Step 4: Classification
+		const label = classifyMove(loss, moveIndex, isEngineMove);
 
-		if (isEngineMove) {
-			// If it matches exactly, we ignore the engine noise and force it to be "Best"
-			// We also zero out the loss so the logs look sane.
-			loss = 0;
-			if (moveIndex <= 4)
-				label = "book";
-			else
-				label = "best";
-		} else if (moveIndex <= 4 && loss <= 30) {
-			label = "book";
-		} else if (loss <= 20) {
-			// Even if moves are different, if loss is low enough it's excellent
-			label = "excellent";
-		} else if (loss <= 50) {
-			label = "good";
-		} else if (loss <= 100) {
-			label = "inaccuracy";
-		} else if (loss <= 250) {
-			label = "mistake";
-		} else {
-			label = "blunder";
-		}
-
-		// 6) Log sanity output
-		console.log(
-			`Move ${moveIndex}\n` +
-			`Played: ${playedMove} (UCI: ${playedMoveUci})\n` +
-			`Best:   ${bestMove ?? "n/a"}\n` +
-			`Match:  ${isEngineMove}\n` +
-			`Eval(best):   ${bestEval?.evaluation.value ?? "n/a"} cp\n` +
-			`Eval(played): ${playedEval.evaluation.value} cp\n` +
-			`Loss: ${loss} cp\n` +
-			`Label: ${label}`
-		);
-
-		// 7) Apply move to real board
+		// Step 5: Update React State (Board & Cache)
 		chessRef.current.move(playedMove, { sloppy: true });
 		setCurrentIndex(moveIndex);
 		setBoard(chessRef.current.board());
-		setExplanation("");
 
-		// 8) Cache results
 		setEvaluations(prev => ({
 			...prev,
 			[moveIndex]: playedEval,
-			[`best_${moveIndex}`]: bestEval,
+			[`context_${moveIndex}`]: boardContext,
 			[`label_${moveIndex}`]: label,
-			[`loss_${moveIndex}`]: loss
+			// ...
 		}));
 
-		// ------------------------------------------------
-		// 9) Ask the AI Coach (Async)
-		// ------------------------------------------------
-		if (label !== "book" && label !== "best") {
+		// Step 6: Trigger AI Explanation (Restored Logic)
+		if (label !== "book") {
 			setExplanation("Thinking...");
 
-			const context = {
+			// Construct the context object (matches CoachContext DTO in C#)
+			const contextPayload = {
 				fen: fenBefore,
 				moveSan: playedMove,
-				bestMoveSan: bestMove, // sending UCI is fine, Gemini figures it out
+				bestMoveSan: bestMoveSan || "",
 				label: label,
 				scoreBefore: preEval?.evaluation?.value ?? 0,
-				scoreAfter: playedEval?.evaluation?.value ?? 0
+				scoreAfter: playedEval?.evaluation?.value ?? 0,
+				boardContext: boardContext // The holistic facts from C#
 			};
 
-			fetchExplanation(context).then(text => {
-				setExplanation(text);
-			});
-		} else if (label === "book") {
-			setExplanation("This is a known book move.");
-		} else if (label === "best") {
-			setExplanation("Best move! You found the optimal continuation.");
+			// Use your existing fetcher
+			const text = await fetchExplanation(contextPayload);
+			setExplanation(text);
+		} else {
+			setExplanation("Book move.");
 		}
-
 	};
 
 	const previous = () => {
