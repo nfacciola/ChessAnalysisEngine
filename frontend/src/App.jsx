@@ -54,6 +54,22 @@ function resolveUciMove(fen, moveSan) {
 	}
 }
 
+function uciToSan(fen, uciMove) {
+	if (!uciMove) return null;
+	try {
+		const tempChess = new Chess(fen);
+		const from = uciMove.substring(0, 2);
+		const to = uciMove.substring(2, 4);
+		const promotion = uciMove.length > 4 ? uciMove.substring(4, 5) : undefined;
+
+		// Make the move on the temp board to get the SAN notation
+		const move = tempChess.move({ from, to, promotion });
+		return move ? move.san : uciMove; // Fallback to UCI if move fails
+	} catch (e) {
+		return uciMove;
+	}
+}
+
 // Helper: Determine the label (Best, Mistake, Blunder, etc.)
 function classifyMove(loss, moveIndex, isEngineMove) {
 	if (isEngineMove) {
@@ -235,22 +251,30 @@ function App() {
 		if (label !== "book") {
 			setExplanation("Thinking...");
 
+			const bestMoveReadable = uciToSan(fenBefore, bestMoveSan);
+
+			// 1. DEBUG LOGGING: See exactly what facts C# found
+			console.log("--- DEBUG CONTEXT ---");
+			console.log("Direct Attacks Found:", boardContext.tactics?.directAttacks);
+			console.log("Full Context:", boardContext);
+			console.log("---------------------");
+
 			// Construct the context object (matches CoachContext DTO in C#)
 			const contextPayload = {
 				fen: fenBefore,
 				moveSan: playedMove,
-				bestMoveSan: bestMoveSan || "",
+				bestMoveSan: bestMoveReadable || "",
 				label: label,
 				scoreBefore: preEval?.evaluation?.value ?? 0,
 				scoreAfter: playedEval?.evaluation?.value ?? 0,
-				boardContext: boardContext // The holistic facts from C#
+				boardContext: boardContext
 			};
 
 			// Use your existing fetcher
 			const text = await fetchExplanation(contextPayload);
 			setExplanation(text);
 		} else {
-			setExplanation("Book move.");
+			setExplanation("This is a book move.");
 		}
 	};
 

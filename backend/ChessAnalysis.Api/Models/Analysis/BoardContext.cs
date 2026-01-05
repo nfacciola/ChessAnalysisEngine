@@ -8,7 +8,9 @@ public class BoardContext
     // The "Modules" of the context
     public MaterialData Material { get; set; } = new();
     public GeometryData Geometry { get; set; } = new();
-    public KingSafetyData KingSafety { get; set; } = new();
+    public KingSafetyData WhiteKingSafety { get; set; } = new();
+    public KingSafetyData BlackKingSafety { get; set; } = new();
+    public TacticsData Tactics { get; set; } = new();
 }
 
 public class MaterialData
@@ -29,4 +31,10 @@ public class KingSafetyData
     public bool CanCastleKingside { get; set; }
     public bool CanCastleQueenside { get; set; }
     public bool IsInCheck { get; set; }
+}
+
+public class TacticsData
+{
+    public List<string> DirectAttacks { get; set; } = new();
+    public List<string> PinnedPieces { get; set; } = new();
 }
